@@ -1,0 +1,84 @@
+/*
+ * hmi_ecu.c
+ *
+ *  Created on: Oct 6, 2019
+ *  Author: Mohamed Adel
+ *   Description:
+ *      Door Locking System HMI ECU:-
+ *      	This ECU takes input from user and sends it to a controller ECU which does the logic and sends
+ *      	commands on which this ECU takes actions[displays instructions on screen]
+ *
+ *      	The only logic that this ECU have is to assure that the password sent is not empty and does not exceed 16 characters
+ *      	and this is to facilitate the process for the controller.
+ *
+ */
+
+	/*********************************************************************
+							   Include Files
+	 ********************************************************************/
+#include "program_externals.h"
+
+
+	/*********************************************************************
+		 	 	 	 	 	Start main function
+	 ********************************************************************/
+int main(void)
+{
+	/*********************************************************************
+		 	 	 	 	 	Variables definition
+	 ********************************************************************/
+	uint8 password1[16];
+	uint8 password2[16];
+	uint8 passwordLength1, passwordLength2;
+	uint8 programState, controller_status, action;
+	uint8 key;
+
+	/*********************************************************************
+	 	 	 	 	 	 	 Initialize drivers
+	 ********************************************************************/
+
+
+	UART_config uart_config = {TR, BAUD_RATE_9600, EVEN, STOP_BIT_1};
+	UART_init(&uart_config);/*Initialize UART*/
+
+	LCD_init();	/*Initialize LCD*/
+
+	//TIMER0_OVF_init(F_CPU_1024);/*Initialize Timer0*/
+
+
+	/*********************************************************************
+		 	 	 	 	 	 Initialize Variables
+	 ********************************************************************/
+	programState = controller_status = passwordLength1 = passwordLength2  = action = 0;
+
+
+
+
+
+	/*********************************************************************
+			 	 	 	 	 	Program Start
+	 ********************************************************************/
+	/*State of a new system*/
+	LCD_displayString("Enter New Password: ");
+	LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+	LCD_displayString("[4-16]digits");
+	programState = 0;
+	/*Move to State 0*/
+
+	UART_sendByte('X');
+	uint8 *a = "yeaaah";
+	UART_sendString(a);
+	UART_sendByte('#');
+	uint8 o;
+	UART_receiveByte(&o);
+	while(1)
+	{
+
+	}
+
+	return 0;
+}
+
+			/*********************************************************************
+										End Of Application :)
+			 ********************************************************************/

@@ -1,0 +1,277 @@
+/*
+ * hmi_ecu.c
+ *
+ *  Created on: Oct 6, 2019
+ *  Author: Mohamed Adel
+ *   Description:
+ *      Door Locking System - Controller ECU:-
+ *      	This This ECU communicates with the HMI ECU and takes the data(passwords) of the user and validates this data
+ *      	and it takes commands and does them.
+ *      	and it sends commands and statuses to the HMI ECU to display results.
+ *
+ *      	The only logic that this ECU have is to assure that the password sent is not empty and does not exceed 16 characters
+ *      	and this is to facilitate the process for the controller.
+ *
+ */
+
+	/*********************************************************************
+							   Include Files
+	 ********************************************************************/
+#include "program_externals.h"
+
+
+	/*********************************************************************
+		 	 	 	 	 	Program Macros
+	 ********************************************************************/
+
+#define PASSWORD_LENGTH_ADDRESS 0x09	/*Start address of password in EEPROM*/
+#define START_ADDRESS_OF_PASSWORD 0x0A	/*Start address of password in EEPROM*/
+
+	/*********************************************************************
+		 	 	 	 	 	Global variables
+	 ********************************************************************/
+	static volatile uint16 tick = 0;
+	static volatile uint8 programState = 0;
+	/*********************************************************************
+							 Functions prototypes
+	 ********************************************************************/
+	void TIMER0_OVF_ISR(void);
+
+
+	/*********************************************************************
+		 	 	 	 	 	Start main function
+	 ********************************************************************/
+
+int main(void)
+{
+
+	/*********************************************************************
+			 	 	 	 	 	Variables definition
+	 ********************************************************************/
+	uint8 password1[16];
+	uint8 password2[16];
+	uint8 passwordLength1, passwordLength2;
+	uint8 wrongPasswordCount, action, wrongPassword;
+
+	/*********************************************************************
+							 Initialize Pins
+	 ********************************************************************/
+	SET_BIT(DDRC, PC4);	/*For Buzzer*/
+	CLEAR_BIT(PORTC,PC4);
+
+	/*********************************************************************
+							 Initialize drivers
+	 ********************************************************************/
+
+	UART_config uart_config = {TR, BAUD_RATE_9600, EVEN, STOP_BIT_1};
+	UART_init(&uart_config);/*Initialize UART*/
+
+	EEPROM_init();	/*Initialize EEPROM*/
+
+	DC_MOTOR_init(); /*Initialize DC Motor*/
+
+	TIMER0_OVF_init(F_CPU_1);	/*Initialize timer0 overflow mode*/
+
+	/*********************************************************************
+							 Initialize Variables
+	 ********************************************************************/
+	programState  = wrongPasswordCount = action = wrongPassword = passwordLength1 = passwordLength2 = 0;
+
+	/*********************************************************************
+								Program Loop Start
+	 ********************************************************************/
+
+
+
+	while(1)
+	{
+		switch(programState)
+		{
+		default:
+		case 0:
+			{
+				wrongPasswordCount = action = wrongPassword = passwordLength1 = passwordLength2 = 0;
+
+				UART_receiveByte(&passwordLength1);
+				passwordLength1-=48;		/*Because sending data added 48 to facilitate debugging*/
+				UART_sendByte('#');	/*Send ACK to sync communication*/
+				UART_receiveString(password1);
+				UART_receiveByte(&passwordLength2);
+				passwordLength2-=48;		/*Because sending data added 48 to facilitate debugging*/
+				UART_sendByte('#');	/*Send ACK to sync communication*/
+				UART_receiveString(password2);
+
+				/************Password validation**************/
+
+				/*Check if both passwords have the same length*/
+				if(passwordLength1 == passwordLength2)
+				{
+					for(uint8 i = 0; i < passwordLength1; ++i)
+					{
+						if(password1[i] != password2[i])
+						{
+							wrongPassword = 1;
+							UART_sendByte('F');	/*Send Fail status because passwords are not identical*/
+							break;
+						}
+					}
+					if(!wrongPassword)
+					{
+						/*Save password in EEPROM*/
+						EEPROM_writeByte(PASSWORD_LENGTH_ADDRESS, passwordLength1);
+						_delay_ms(10);
+						for(uint8 i = 0; i < passwordLength1; ++i)
+						{
+							EEPROM_writeByte(START_ADDRESS_OF_PASSWORD+i, password1[i]);
+							_delay_ms(10);
+						}
+
+						UART_sendByte('S'); /*Send Success status because passwords are identical*/
+						programState++;		/*Move to state 1*/
+					}
+
+				}
+				else
+				{
+					UART_sendByte('F');	/*Send Fail status because passwords are not identical*/
+					/*Stay in the same state to receive passwords again*/
+				}
+				wrongPassword = 0;
+			}
+			break;
+
+		case 1:
+			{
+
+				/*Receive the entered password from user and its length*/
+				UART_receiveByte(&passwordLength2);
+				passwordLength2-=48;		/*Because sending data added 48 to facilitate debugging*/
+				UART_sendByte('#');						/*Send ACK to sync communication*/
+				UART_receiveString(password2);
+
+
+				/*Retrieve password form EEPROM*/
+				EEPROM_readByte(PASSWORD_LENGTH_ADDRESS, &passwordLength1);
+				for(uint8 i = 0; i < passwordLength1; ++i)
+				{
+					EEPROM_readByte(START_ADDRESS_OF_PASSWORD+i, &password1[i]);
+				}
+
+
+				/*Verify the entered password*/
+				if(passwordLength1 == passwordLength2)
+				{
+					wrongPassword = 0;
+					for(uint8 i = 0; i < passwordLength1; ++i)
+					{
+						if(password1[i] != password2[i])
+						{
+							wrongPassword = 1;
+							wrongPasswordCount++;
+							if(wrongPasswordCount == 3)
+							{
+								UART_sendByte('!'); /*Send Alarm status because the user entered 3 consecutive wrong passwords*/
+								/*Trigger buzzer*/
+								/*Delay*/
+								SET_BIT(DDRD, PD3); /*Configure pin D to be output*/
+								SET_BIT(PORTD, PD3);
+								_delay_ms(5000);
+								/*Close buzzer*/
+
+								wrongPasswordCount = 0;
+								/*Stay in state 1*/
+							}
+							else
+							{
+								UART_sendByte('X');	/*Send Wrong password status Entered password is wrong*/
+
+							}
+							break;
+						}
+					}
+					if(!wrongPassword)
+					{
+						UART_sendByte('P'); /*Send Pass status because passwords are identical*/
+
+						UART_receiveByte(&action); 	/*Get user action (+)=> open door (-)=> change password*/
+						if(action == '+')
+						{
+							/****************Open Door***************/
+							DC_MOTOR_rotateCW();
+							SET_BIT(PORTC, PC4);	/*Produce some sound*/
+							_delay_ms(500);
+							CLEAR_BIT(PORTC, PC4);
+							_delay_ms(1500);
+							DC_MOTOR_Stop();
+						}
+						else if(action == '-')
+						{
+							/*************Change password************/
+							/*Move to state 0 which does the same logic*/
+
+							programState = 0;
+						}
+
+						wrongPasswordCount = 0; /*Clear wrong passwords count*/
+
+						/*Stay in the same state to receive commands again*/
+					}
+
+				}
+				else
+				{
+					wrongPasswordCount++;
+					if(wrongPasswordCount == 3)
+					{
+						UART_sendByte('!'); /*Send Alarm status because the user entered 3 consecutive wrong passwords*/
+						programState = 2;
+						TIMER0_OVF_interruptEnable(TIMER0_OVF_ISR); /**/
+						/*Delay*/
+						SET_BIT(DDRD, PD3); /*Configure pin D to be output*/
+						SET_BIT(PORTD, PD3);
+						_delay_ms(5000);
+						/*Close buzzer*/
+
+						wrongPasswordCount = 0;
+						/*Stay in state 1*/
+					}
+					else
+					{
+						UART_sendByte('X');	/*Send Wrong password status Entered password is wrong*/
+					}
+
+					/*Stay in the same state to receive password again*/
+				}
+			}
+			break;
+
+		case 2:
+			{
+				/*Empty case for delays*/
+			}
+			break;
+		}
+
+	}
+	return 0;
+}
+
+
+	/*********************************************************************
+							 Functions definitions
+	 ********************************************************************/
+	void TIMER0_OVF_ISR(void)
+	{
+		if(tick == 1831)
+		{
+			TIMER0_OVF_stop();
+			programState = 1;
+			tick = 0;
+		}
+		else
+		{
+			if(tick % 20 == 0)
+				TOGGLE_BIT(PORTC, PC4); 	/*Toggle buzzer*/
+			tick++;
+		}
+	}

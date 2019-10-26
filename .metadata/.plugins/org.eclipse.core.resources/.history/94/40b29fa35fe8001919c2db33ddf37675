@@ -1,0 +1,371 @@
+/*
+ * hmi_ecu.c
+ *
+ *  Created on: Oct 6, 2019
+ *  Author: Mohamed Adel
+ *   Description:
+ *      Door Locking System HMI ECU:-
+ *      	This ECU takes input from user and sends it to a controller ECU which does the logic and sends
+ *      	commands on which this ECU takes actions[displays instructions on screen]
+ *
+ *      	The only logic that this ECU have is to assure that the password sent is not empty and does not exceed 16 characters
+ *      	and this is to facilitate the process for the controller.
+ *
+ */
+
+	/*********************************************************************
+							   Include Files
+	 ********************************************************************/
+#include "program_externals.h"
+
+
+	/*********************************************************************
+		 	 	 	 	 	Start main function
+	 ********************************************************************/
+int main(void)
+{
+	/*********************************************************************
+		 	 	 	 	 	Variables definition
+	 ********************************************************************/
+	uint8 password1[16];
+	uint8 password2[16];
+	uint8 passwordLength1, passwordLength2;
+	uint8 programState, controller_status, action;
+	uint8 key;
+
+	/*********************************************************************
+	 	 	 	 	 	 	 Initialize drivers
+	 ********************************************************************/
+	LCD_init();	/*Initialize LCD*/
+
+	UART_config uart_config = {TR, BAUD_RATE_9600, EVEN, STOP_BIT_1};
+	UART_init(&uart_config);/*Initialize UART*/
+
+	//TIMER0_OVF_init(F_CPU_1024);/*Initialize Timer0*/
+
+
+	/*********************************************************************
+		 	 	 	 	 	 Initialize Variables
+	 ********************************************************************/
+	programState = controller_status = passwordLength1 = passwordLength2  = action = 0;
+
+
+
+
+
+	/*********************************************************************
+			 	 	 	 	 	Program Start
+	 ********************************************************************/
+	/*State of a new system*/
+	LCD_displayString("Enter New Password: ");
+	LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+	LCD_displayString("[4-16]digits");
+	programState = 0;
+	/*Move to State 0*/
+
+	while(1)
+	{
+		if(programState != 6)	/*Because program state 6 does not need a user input*/
+			key = KEYPAD_getKeyPressed();
+
+		switch(programState)
+		{
+
+
+			/*State 0: Re-Initializes all data and takes the first character of the new password*/
+			/*It assures that the password is not empty*/
+			/*Moves the program to state 1*/
+			/*Pre:	The LCD should display in the first line "ENTER NEW PASS"*/
+		default:
+		case 0:
+			{
+				if(key != 13)		/*If the user pressed any key but enter*/
+				{
+					controller_status = passwordLength1 = passwordLength2  = action = 0;
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);	/*Clear the second line and write a star*/
+					LCD_displayString("                                 ");
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+					LCD_displayOneCharacter('*');
+					password1[(passwordLength1++)] = key;
+					programState++;	/*Move to state 1*/
+				}
+			}
+			break;
+			/*******************************************************************************************************************/
+
+
+			/*State 1: Takes the new password from the user starting from the second character till the user inputs ENTER button*/
+			/*It assures that the password does not exceed 16 characters*/
+			/*Moves the program to state 2*/
+			/*Pre:	This state MUST come after state 0"*/
+		case 1:
+			{
+				if(key != 13)		/*If the user pressed any key but enter*/
+				{
+					if(passwordLength1 < 16)			/*passwordLength must not exceed 16 because the array of password is only for 16 characters*/
+					{
+						LCD_displayOneCharacter('*');	/*Just add a star for each user input*/
+						password1[(passwordLength1++)] = key;
+					}
+					else
+					{
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_FIRST_LINE);
+						LCD_displayString("                                ");
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_FIRST_LINE);
+						LCD_displayString("Max digits=16 press Enter to con");
+					}
+				}
+				else			/*When the user presses Enter*/
+				{
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_FIRST_LINE);
+					LCD_displayString("Re-Enter The Password: ");
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+					LCD_displayString("                                 ");
+					programState++;	/*Move to state 2*/
+				}
+			}
+			break;
+			/*******************************************************************************************************************/
+
+
+
+
+			/*State 2: Takes the first character if the re-Entered password from the user */
+			/*Moves the program to state 3*/
+			/*Pre:	This state MUST come after state 1*/
+			/*Pre:	The LCD should display in the first line "Re-Enter password"*/
+		case 2:
+			{
+				if(key != 13)		/*If the user pressed any key but enter*/
+				{
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);	/*Clear the second line and write a star*/
+					LCD_displayOneCharacter('*');
+					password2[(passwordLength2++)] = key;
+					programState++;	/*Move to state 3*/
+				}
+			}
+			break;
+			/*******************************************************************************************************************/
+
+
+
+
+			/*State 3: Takes the re-Entered password from the user starting from the second character till the user inputs ENTER button*/
+			/*It assures that the password does not exceed 16 characters*/
+			/*Sends both passwords to controller ECU and receives controller status*/
+			/*If the controller status is Success'S' => Move to state 4*/
+			/*If the controller status is Fail'F' => Move back to state 0*/
+			/*Pre:	This state MUST come after state 2*/
+		case 3:
+			{
+				if(key != 13)		/*If the user pressed any key but enter*/
+				{
+					if(passwordLength2 < 16)			/*passwordLength must not exceed 16 because the array of password is only for 16 characters*/
+					{
+						LCD_displayOneCharacter('*');	/*Just add a star for each user input*/
+						password2[(passwordLength2++)] = key;
+					}
+					else
+					{
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_FIRST_LINE);
+						LCD_displayString("                                ");
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_FIRST_LINE);
+						LCD_displayString("Max digits=16 press Enter to con");
+					}
+				}
+				else
+				{
+					/*Send through UART*/
+
+
+					/*Send first password length*/
+					UART_sendByte(passwordLength1);
+					/*Send first password Data*/
+					for(uint8 i = 0; i < passwordLength1; ++i)
+					{
+						UART_sendByte(password1[i]);
+					}
+					UART_sendByte('#');	/*TERMINATING CHARACTER*/
+
+
+
+					/*Send second password length*/
+					UART_sendByte(passwordLength2);
+					/*Send second password Data*/
+					for(uint8 i = 0; i < passwordLength1; ++i)
+					{
+						UART_sendByte(password2[i]);
+					}
+					UART_sendByte('#');	/*TERMINATING CHARACTER*/
+
+
+
+					UART_receiveByte(&controller_status);	/*Receive controller command*/
+
+
+					LCD_sendCommand(LCD_CLEAR_DISPLAY);
+					LCD_sendCommand(LCD_RETURN_HOME);
+					if(controller_status == 'S')
+					{
+						LCD_displayString("Welcome!");
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+						LCD_displayString("+OPEN,-New Pass");
+						programState++;/*Move to state 4*/
+					}
+					else if(controller_status == 'F')
+					{
+						LCD_displayString("Wrong inputs!");
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+						LCD_displayString("                                 ");
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+						LCD_displayString("Enter new password:");
+						programState = 0;/*Move back to state 0*/
+					}
+
+					controller_status = 0;/*Clear Controller Status*/
+				}
+			}
+			break;
+			/*******************************************************************************************************************/
+
+
+
+
+			/*State 4: Takes the user action: '+': open door '-': change password*/
+			/*Moves the program to state 5*/
+			/*Pre:	LCD should display in the second line "+Open,-New pass"*/
+			/*Pre:	This state MUST come after state 3*/
+		case 4:
+			{
+				action = key;
+				LCD_sendCommand(LCD_CLEAR_DISPLAY);
+				LCD_sendCommand(LCD_RETURN_HOME);
+				LCD_displayString("Enter password:");
+				LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+
+				passwordLength1 = 0;	/*Clear password1 to save the entered password in it*/
+				programState++; 		/*Move to state 5*/
+			}
+			break;
+			/*******************************************************************************************************************/
+
+
+
+
+			/*State 5: Takes the complete user password till the user inputs ENTER button*/
+			/*It assures that the password is not empty and does not exceed 16 characters*/
+			/*Moves the program to state 6*/
+			/*Pre:	LCD should display in the first line "Enter password:"*/
+			/*Pre:	This state MUST come after state 4*/
+		case 5:
+			{
+				if(key != 13 && passwordLength1 < 16)
+				{
+					LCD_displayOneCharacter('*');
+					password1[(passwordLength1++)] = key;	/*Store entered password in password1 string*/
+				}
+				else
+				{
+					if(passwordLength1 > 0)
+						programState++; /*Move to state 6*/
+				}
+			}
+			break;
+			/*******************************************************************************************************************/
+
+
+
+
+			/*State 6: Sends the entered password to controller and receives controller status*/
+			/*If the controller status is Pass'P':
+			 * =>if the user action was open door'+' => display on LCD's first line "Door Opening" for 2 seconds then move back to state 4
+			 * =>if the user action was change password '-' =>display on LCD's first line "Enter New Pass:" and move back to state 0
+			 */
+			/*If the controller status is Pass'X' => display on LCD's first line "Wrong! re-enter" and move back to state 5*/
+			/*If the controller status is Pass'!' => display on LCD's first line any ALARM status for 5 seconds then move back to state 4*/
+			/*Pre:	This state MUST come after state 5*/
+		case 6:
+			{
+				/*Send through UART*/
+
+
+				/*Send first password length*/
+				UART_sendByte(passwordLength1);
+				/*Send first password Data*/
+				for(uint8 i = 0; i < passwordLength1; ++i)
+				{
+					UART_sendByte(password1[i]);
+				}
+				UART_sendByte('#');	/*TERMINATING CHARACTER*/
+
+				UART_receiveByte(&controller_status);	/*Receive controller command*/
+
+
+				if(controller_status == 'P') 	/*Right password => Pass*/
+				{
+					if(action == '+')
+					{
+						UART_sendByte('+');		/*Send to controller to open door*/
+						LCD_sendCommand(LCD_CLEAR_DISPLAY);
+						LCD_sendCommand(LCD_RETURN_HOME);
+						LCD_displayString("Door Opening");
+						_delay_ms(2000);
+						LCD_sendCommand(LCD_CLEAR_DISPLAY);
+						LCD_sendCommand(LCD_RETURN_HOME);
+						LCD_displayString("+OPEN,-New Pass");
+						programState = 4;
+					}
+					else if(action == '-')
+					{
+						UART_sendByte('-');		/*Send to controller to change the password*/
+						LCD_sendCommand(LCD_CLEAR_DISPLAY);
+						LCD_sendCommand(LCD_RETURN_HOME);
+						LCD_displayString("Enter New Password: ");
+						LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+						programState = 0;
+					}
+				}
+				else if(controller_status == 'X')	/*wrong pass => re-enter password*/
+				{
+					LCD_sendCommand(LCD_CLEAR_DISPLAY);
+					LCD_sendCommand(LCD_RETURN_HOME);
+					LCD_displayString("Wrong! re-enter:");
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+					passwordLength1 = 0;
+					programState = 5;
+					UART_sendByte('#');						/*ACK for communication*/
+				}
+				else if(controller_status == '!')	/*wrong pass => Alarm ON*/
+				{
+					LCD_sendCommand(LCD_CLEAR_DISPLAY);
+					LCD_sendCommand(LCD_RETURN_HOME);
+					LCD_displayString("7aramaaaaay");
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+					LCD_displayString("Yabnel &^$&!@%");
+					_delay_ms(5000);
+					LCD_sendCommand(LCD_CLEAR_DISPLAY);
+					LCD_sendCommand(LCD_RETURN_HOME);
+					LCD_displayString("+OPEN,-New Pass");
+					LCD_sendCommand(LCD_MOVE_CURSOR_TO_SECOND_LINE);
+					passwordLength1 = 0;
+					programState = 4;
+					UART_sendByte('#');						/*ACK for communication*/
+				}
+
+			}
+			break;
+
+
+			/*********************************************************************
+				 	 	 	 	 	 	 End Of Cases
+			 ********************************************************************/
+		}
+		_delay_ms(250);	/*Delay 250ms after each key press*/
+	}
+
+	return 0;
+}
+
+			/*********************************************************************
+										End Of Application :)
+			 ********************************************************************/

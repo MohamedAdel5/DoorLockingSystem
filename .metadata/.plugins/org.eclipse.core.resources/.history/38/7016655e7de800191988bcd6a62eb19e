@@ -1,0 +1,33 @@
+/*
+ * dc_motor.c
+ *
+ *  Created on: Oct 6, 2019
+ *      Author: DR. ADEL
+ */
+/*********************************************************************
+						 Include files
+********************************************************************/
+#include "dc_motor.h"
+/*********************************************************************
+						 Functions definitions
+********************************************************************/
+void DC_MOTR_init(void)
+{
+	DDR
+}
+void DC_MOTR_rotateCW(void)
+{
+
+}
+void DC_MOTOR_rotateCCW(void)
+{
+
+}
+void DC_MOTOR_stop(void)
+{
+
+}
+void DC_MOTOR_setSpeed(uint8 dutyCycle)
+{
+
+}
